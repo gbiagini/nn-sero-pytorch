@@ -19,6 +19,7 @@ NN_dir = './'
 # %%
 import pandas as pd
 import numpy as np
+import joblib
 import sys
 import math
 import lime
@@ -602,11 +603,13 @@ for loc in tqdm(loci):
             predictions[:,0] = (predictions[:,0] < threshold).astype('int')
             predictions = (predictions[:,1] >= threshold).astype('int')
             all_predictions.append(predictions)
+            joblib.dump(new_forest,f'models/{loc}_random_forest.joblib')
         else:
             predictions = forest.predict_proba(test)
             predictions[:,0] = (predictions[:,0] < threshold).astype('int')
             predictions = (predictions[:,1] >= threshold).astype('int')
             all_predictions.append(predictions)
+            joblib.dump(forest,f'models/{loc}_random_forest.joblib')
 
 
     all_predictions = np.asarray(all_predictions)
