@@ -580,6 +580,8 @@ for loc in tqdm(loci):
             tree_importance_sorted_idx = np.argsort(forest.feature_importances_)
             tree_importance_sorted_idx = tree_importance_sorted_idx[-numfeat[loc]:]
             less_features = np.array(feature_list)[tree_importance_sorted_idx]
+            with open(f"models/{loc}{ind_labels[idx]}_features.txt", "w") as f:
+                f.write(','.join(less_features))
             new_features = all_features[less_features]
             new_features = np.array(new_features)
             new_features[new_features!=new_features]='0'
@@ -603,13 +605,15 @@ for loc in tqdm(loci):
             predictions[:,0] = (predictions[:,0] < threshold).astype('int')
             predictions = (predictions[:,1] >= threshold).astype('int')
             all_predictions.append(predictions)
-            joblib.dump(new_forest,f'models/{loc}_random_forest.joblib')
+            joblib.dump(new_forest,f'models/{loc}{ind_labels[idx]}_random_forest.joblib')
         else:
             predictions = forest.predict_proba(test)
+            with open(f"models/{loc}{ind_labels[idx]}_features.txt", "w") as f:
+                f.write(','.join(feature_list))
             predictions[:,0] = (predictions[:,0] < threshold).astype('int')
             predictions = (predictions[:,1] >= threshold).astype('int')
             all_predictions.append(predictions)
-            joblib.dump(forest,f'models/{loc}_random_forest.joblib')
+            joblib.dump(forest,f'models/{loc}{ind_labels[idx]}_random_forest.joblib')
 
 
     all_predictions = np.asarray(all_predictions)
