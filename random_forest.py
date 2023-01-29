@@ -23,6 +23,8 @@ import joblib
 import sys
 import math
 import lime
+import functools
+import re
 import lime.lime_tabular
 from tqdm import tqdm
 from sklearn.ensemble import RandomForestClassifier
@@ -35,6 +37,104 @@ from scipy.spatial.distance import squareform
 from sklearn.inspection import permutation_importance
 #from sklearn.model_selection import train_test_split
 
+np.set_printoptions(threshold=sys.maxsize)
+
+expr_regex = re.compile('[NQLSGg]')
+glstring_chars = re.compile('[/|+^~]')
+
+def smart_sort_comparator(a1, a2):
+    """
+    Natural sort 2 given alleles.
+    Python sorts strings lexicographically but HLA alleles need
+    to be sorted by numerical values in each field of the HLA nomenclature.
+    :param a1: first allele
+    :param a2: second allele
+    """
+
+    # Check to see if they are the same alleles
+    if a1 == a2:
+        return 0
+
+    # GL String matches
+    if re.search(glstring_chars, a1) or re.search(glstring_chars, a2):
+        if a1 > a2:
+            return 1
+        else:
+            return -1
+
+    # remove any non-numerics
+    a1 = re.sub(expr_regex, '', a1)
+    a2 = re.sub(expr_regex, '', a2)
+
+    # Check to see if they are still the same alleles
+    if a1 == a2:
+        return 0
+
+    # Extract and Compare first fields first
+    a1_f1 = int(a1[a1.find('*') + 1:a1.find(':')])
+    a2_f1 = int(a2[a2.find('*') + 1:a2.find(':')])
+
+    if a1_f1 < a2_f1:
+        return -1
+    if a1_f1 > a2_f1:
+        return 1
+
+    a1_fields = a1.split(':')
+    a2_fields = a2.split(':')
+
+    # If the first fields are equal, try the 2nd fields
+    a1_f2 = int(a1_fields[1])
+    a2_f2 = int(a2_fields[1])
+
+    if a1_f2 < a2_f2:
+        return -1
+    if a1_f2 > a2_f2:
+        return 1
+
+    # If the second fields are equal, try the 3rd fields
+    if len(a1_fields) >2:
+        try:
+            a1_f3 = int(a1_fields[2])
+        except ValueError:
+            a1_f3 = 0
+    else:
+        a1_f3 = 0
+    if len(a2_fields) >2:
+        try:
+            a2_f3 = int(a2_fields[2])
+        except ValueError:
+            a2_f3 = 0
+    else:
+        a2_f3 = 0
+
+    if a1_f3 < a2_f3:
+        return -1
+    if a1_f3 > a2_f3:
+        return 1
+
+    # If the third fields are equal, try the 4th fields
+    if len(a1_fields) >3:
+        try:
+            a1_f4 = int(a1_fields[3])
+        except ValueError:
+            a1_f4 = 0
+    else:
+        a1_f4 = 0
+    if len(a2_fields) >3:
+        try:
+            a2_f4 = int(a2_fields[3])
+        except ValueError:
+            a2_f4 = 0
+    else:
+        a2_f4 = 0
+
+    if a1_f4 < a2_f4:
+        return -1
+    if a1_f4 > a2_f4:
+        return 1
+
+    # All fields are considered equal after 4th field
+    return 0
 
 def metrics(print_all='no'):
     loci = ['A', 'B', 'C', 'DQB1', 'DRB1']
@@ -602,8 +702,9 @@ for loc in tqdm(loci):
             #threshold = 0.42
 
             predictions = new_forest.predict_proba(new_test)
-            predictions[:,0] = (predictions[:,0] < threshold).astype('int')
-            predictions = (predictions[:,1] >= threshold).astype('int')
+            #predictions[:,0] = (predictions[:,0] < threshold).astype('int')
+            #predictions = (predictions[:,1] >= threshold).astype('int')
+            predictions = predictions[:,1]
             all_predictions.append(predictions)
             joblib.dump(new_forest,f'models/{loc}{ind_labels[idx]}_random_forest.joblib')
         else:
@@ -618,7 +719,13 @@ for loc in tqdm(loci):
 
     all_predictions = np.asarray(all_predictions)
     all_predictions = np.transpose(all_predictions)
-
+    preds_output = pd.DataFrame(all_predictions, columns=ind_labels, index=test_idcs)
+    allele_list = preds_output.index.tolist()
+    preds_output.index.name = 'allele'
+    #  preds_output = preds_output.apply(lambda x: str((x['serology'].split(';'))[:-1]), result_type='broadcast', axis=1)
+    sorter = sorted(allele_list,key=functools.cmp_to_key(smart_sort_comparator))
+    preds_output = preds_output.loc[sorter]
+    '''
     explainer = lime.lime_tabular.LimeTabularExplainer(features,feature_names=feature_list,class_names=ind_labels,kernel_width=5)
     for rowexp in range(0,1):
       exp = explainer.explain_instance(test[rowexp], forest.predict_proba, num_features=n_features)
@@ -631,6 +738,22 @@ for loc in tqdm(loci):
     preds_output.index.name = 'allele'
     preds_output = preds_output.apply(lambda x: str((x['serology'].split(';'))[:-1]), result_type='broadcast', axis=1)
     preds_output.to_csv(base_dir + 'predictions/'+loc+'_predictions.csv', index=True)
+    '''
+    
+    with open(f'randomforest/predictions/{loc}_predictions.tsv','w+') as handle:
+        handle.write('allele\tprediction\tprobability\n')
+        for index,row in preds_output.iterrows():
+            for col in preds_output.columns:
+                #  p = str(row[col])
+                #  p = p.replace('[','')
+                #  p = p.replace(']','')
+                #  p = p.replace('"','')
+                #  p = p.replace("'",'')
+                #  p = p.replace(",",'')
+                #  p = float(p)
+                prob = float(row[col])
+                handle.write('{};{};{:05.1%}\n'.format(index,col,prob))
+    #  preds_output.to_csv('expanded-predictions/'+loc+'_predictions.csv', index=True)
 
 print("Done.")
 
